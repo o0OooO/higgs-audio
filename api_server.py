@@ -230,23 +230,35 @@ async def get_available_scenes():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def prepare_messages(text: str, ref_audio: Optional[str] = None, scene_prompt: str = "quiet_indoor") -> List[Message]:
-    """准备消息列表"""
+def prepare_messages(text: str, ref_audio: Optional[str] = None, scene_prompt: str = "quiet_indoor") -> ChatMLSample:
+    """准备ChatML样本"""
     messages = []
 
-    # 添加系统消息
+    # 构建系统消息
+    system_parts = ["Generate audio following instruction."]
+    
+    # 添加场景描述
+    if scene_prompt and scene_prompt != "quiet_indoor":
+        try:
+            scene_file = Path(config.scene_prompts_dir) / f"{scene_prompt}.txt"
+            if scene_file.exists():
+                with open(scene_file, 'r', encoding='utf-8') as f:
+                    scene_content = f.read().strip()
+                system_parts.append(f"<|scene_desc_start|>\n{scene_content}\n<|scene_desc_end|>")
+        except Exception as e:
+            logger.warning(f"读取场景描述失败: {e}")
+    
+    # 添加参考音频描述
     if ref_audio:
-        system_content = f"你是一个AI助手，可以将文本转换为语音。使用参考音频 '{ref_audio}' 的声音特征。"
-    else:
-        system_content = "你是一个AI助手，可以将文本转换为语音。"
-
+        system_parts.append(f"Use reference audio '{ref_audio}' for voice characteristics.")
+    
+    system_content = "\n\n".join(system_parts)
     messages.append(Message(role="system", content=TextContent(text=system_content)))
 
     # 添加用户消息
-    user_content = f"请将以下文本转换为语音：{text}"
-    messages.append(Message(role="user", content=TextContent(text=user_content)))
+    messages.append(Message(role="user", content=TextContent(text=text)))
 
-    return messages
+    return ChatMLSample(messages=messages)
 
 
 def audio_to_base64(audio_data: np.ndarray, sampling_rate: int) -> str:
@@ -276,15 +288,12 @@ async def generate_audio(request: AudioGenerationRequest):
     try:
         engine = load_model()
 
-        # 准备消息
-        messages = prepare_messages(
+        # 准备ChatML样本
+        chat_ml_sample = prepare_messages(
             text=request.text,
             ref_audio=request.ref_audio,
             scene_prompt=request.scene_prompt
         )
-
-        # 准备ChatML样本
-        chat_ml_sample = prepare_chatml_sample(messages)
 
         # 生成音频
         response: HiggsAudioResponse = engine.generate(
@@ -330,15 +339,12 @@ async def generate_audio_stream(request: AudioGenerationRequest):
     try:
         engine = load_model()
 
-        # 准备消息
-        messages = prepare_messages(
+        # 准备ChatML样本
+        chat_ml_sample = prepare_messages(
             text=request.text,
             ref_audio=request.ref_audio,
             scene_prompt=request.scene_prompt
         )
-
-        # 准备ChatML样本
-        chat_ml_sample = prepare_chatml_sample(messages)
 
         async def generate_stream():
             """生成流式响应"""
@@ -413,9 +419,8 @@ async def generate_audio_with_upload(
             # 简化处理：暂时忽略上传的音频文件
             logger.warning("上传音频文件功能暂未完全实现")
 
-        # 准备消息
-        messages = prepare_messages(text=text)
-        chat_ml_sample = prepare_chatml_sample(messages)
+        # 准备ChatML样本
+        chat_ml_sample = prepare_messages(text=text)
 
         # 生成音频
         response: HiggsAudioResponse = engine.generate(
