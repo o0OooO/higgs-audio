@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  higgs-audio-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEVICE=auto
+      - MODEL_PATH=bosonai/higgs-audio-v2-generation-3B-base
+      - AUDIO_TOKENIZER_PATH=bosonai/higgs-audio-v2-tokenizer
+      - MAX_NEW_TOKENS=2048
+    volumes:
+      # 挂载模型缓存目录
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      # 挂载日志目录
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu] 
