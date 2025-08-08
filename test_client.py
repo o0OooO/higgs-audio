@@ -263,6 +263,8 @@ def test_upload_audio():
             for i in range(sample_rate * duration):
                 # 生成正弦波
                 value = int(32767 * 0.3 * (i * frequency * 2 * 3.14159 / sample_rate))
+                # 确保值在16位整数范围内
+                value = max(-32768, min(32767, value))
                 data = struct.pack('<h', value)
                 wav_file.writeframes(data)
     
