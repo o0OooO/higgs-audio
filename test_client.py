@@ -6,9 +6,6 @@ HiggsAudio API客户端测试脚本
 import requests
 import json
 import base64
-import io
-import soundfile as sf
-from pathlib import Path
 
 
 class HiggsAudioClient:
