@@ -6,6 +6,7 @@ HiggsAudio API客户端测试脚本
 import requests
 import json
 import base64
+import os
 
 
 class HiggsAudioClient:
@@ -47,6 +48,28 @@ class HiggsAudioClient:
         }
         response = self.session.post(f"{self.base_url}/generate-stream", json=data, stream=True)
         return response
+    
+    def upload_audio_file(self, file_path: str):
+        """上传音频文件"""
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+        
+        with open(file_path, 'rb') as f:
+            files = {'audio_file': (os.path.basename(file_path), f, 'audio/wav')}
+            response = self.session.post(f"{self.base_url}/upload-audio", files=files)
+        
+        return response.json()
+    
+    def upload_scene_file(self, file_path: str):
+        """上传场景文本文件"""
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+        
+        with open(file_path, 'rb') as f:
+            files = {'scene_file': (os.path.basename(file_path), f, 'text/plain')}
+            response = self.session.post(f"{self.base_url}/upload-scene", files=files)
+        
+        return response.json()
     
     def save_audio_from_base64(self, audio_base64: str, output_path: str):
         """从Base64保存音频文件"""
@@ -213,12 +236,103 @@ def test_streaming():
         print(f"流式生成测试失败: {e}")
 
 
+def test_upload_audio():
+    """测试上传音频文件功能"""
+    print("\n=== 测试上传音频文件功能 ===")
+    
+    client = HiggsAudioClient()
+    
+    # 创建一个测试音频文件（如果不存在）
+    test_audio_path = "test_upload_audio.wav"
+    if not os.path.exists(test_audio_path):
+        print(f"创建测试音频文件: {test_audio_path}")
+        # 创建一个简单的测试音频文件（这里只是示例，实际应该是一个真实的音频文件）
+        import wave
+        import struct
+        
+        # 创建一个简单的正弦波音频文件
+        sample_rate = 44100
+        duration = 1  # 1秒
+        frequency = 440  # 440 Hz
+        
+        with wave.open(test_audio_path, 'w') as wav_file:
+            wav_file.setnchannels(1)  # 单声道
+            wav_file.setsampwidth(2)  # 16位
+            wav_file.setframerate(sample_rate)
+            
+            for i in range(sample_rate * duration):
+                # 生成正弦波
+                value = int(32767 * 0.3 * (i * frequency * 2 * 3.14159 / sample_rate))
+                data = struct.pack('<h', value)
+                wav_file.writeframes(data)
+    
+    print(f"上传音频文件: {test_audio_path}")
+    
+    try:
+        result = client.upload_audio_file(test_audio_path)
+        
+        if result.get('success'):
+            print("音频文件上传成功!")
+            print(f"上传的文件: {result.get('uploaded_file')}")
+            print(f"当前音频总数: {result.get('count', 0)}")
+            
+            # 显示部分音频列表
+            voices = result.get('voices', [])
+            print("音频列表:")
+            for voice in voices[-5:]:  # 显示最后5个
+                print(f"  - {voice['name']}")
+        else:
+            print(f"音频文件上传失败: {result.get('message', '未知错误')}")
+            
+    except Exception as e:
+        print(f"音频文件上传测试失败: {e}")
+
+
+def test_upload_scene():
+    """测试上传场景文本文件功能"""
+    print("\n=== 测试上传场景文本文件功能 ===")
+    
+    client = HiggsAudioClient()
+    
+    # 创建一个测试场景文件
+    test_scene_path = "test_upload_scene.txt"
+    test_scene_content = """这是一个测试场景描述。
+场景包含：安静的室内环境，有轻微的空调声，背景有轻柔的音乐。
+适合：语音录制、播客制作、有声书朗读等场景。"""
+    
+    print(f"创建测试场景文件: {test_scene_path}")
+    with open(test_scene_path, 'w', encoding='utf-8') as f:
+        f.write(test_scene_content)
+    
+    print(f"上传场景文件: {test_scene_path}")
+    
+    try:
+        result = client.upload_scene_file(test_scene_path)
+        
+        if result.get('success'):
+            print("场景文件上传成功!")
+            print(f"上传的文件: {result.get('uploaded_file')}")
+            print(f"文件内容: {result.get('content', '')[:100]}...")
+            print(f"当前场景总数: {result.get('count', 0)}")
+            
+            # 显示部分场景列表
+            scenes = result.get('scenes', [])
+            print("场景列表:")
+            for scene in scenes[-5:]:  # 显示最后5个
+                print(f"  - {scene['name']}: {scene['content'][:50]}...")
+        else:
+            print(f"场景文件上传失败: {result.get('message', '未知错误')}")
+            
+    except Exception as e:
+        print(f"场景文件上传测试失败: {e}")
+
+
 if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="HiggsAudio API客户端测试")
     parser.add_argument("--url", default="http://localhost:8000", help="API服务器URL")
-    parser.add_argument("--test", choices=["basic", "voice-clone", "streaming", "all"], 
+    parser.add_argument("--test", choices=["basic", "voice-clone", "streaming", "upload-audio", "upload-scene", "all"], 
                        default="all", help="测试类型")
     
     args = parser.parse_args()
@@ -234,5 +348,11 @@ if __name__ == "__main__":
     
     if args.test == "streaming" or args.test == "all":
         test_streaming()
+    
+    if args.test == "upload-audio" or args.test == "all":
+        test_upload_audio()
+    
+    if args.test == "upload-scene" or args.test == "all":
+        test_upload_scene()
     
     print("\n=== 测试完成 ===") 

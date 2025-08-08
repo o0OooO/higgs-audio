@@ -8,6 +8,7 @@ import base64
 import io
 import tempfile
 import asyncio
+import shutil
 from typing import List, Optional, Union
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,7 +151,9 @@ async def root():
             "/generate",
             "/generate-stream",
             "/voices",
-            "/scenes"
+            "/scenes",
+            "/upload-audio",
+            "/upload-scene"
         ]
     }
 
@@ -449,6 +452,131 @@ async def generate_audio_with_upload(
     except Exception as e:
         logger.error(f"音频生成失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload-audio")
+async def upload_audio_file(audio_file: UploadFile = File(...)):
+    """上传音频文件到语音克隆文件夹"""
+    try:
+        # 检查文件类型
+        if not audio_file.filename.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
+            raise HTTPException(status_code=400, detail="只支持音频文件格式: wav, mp3, flac, m4a")
+        
+        # 确保目标目录存在
+        voice_dir = Path(config.voice_prompts_dir)
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 生成安全的文件名
+        filename = audio_file.filename
+        # 移除扩展名
+        name_without_ext = Path(filename).stem
+        # 添加.wav扩展名（统一格式）
+        safe_filename = f"{name_without_ext}.wav"
+        file_path = voice_dir / safe_filename
+        
+        # 如果文件已存在，添加数字后缀
+        counter = 1
+        original_path = file_path
+        while file_path.exists():
+            safe_filename = f"{name_without_ext}_{counter}.wav"
+            file_path = voice_dir / safe_filename
+            counter += 1
+        
+        # 保存文件
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(audio_file.file, buffer)
+        
+        # 获取更新后的音频列表
+        voices = []
+        for file_path in voice_dir.glob("*.wav"):
+            voice_name = file_path.stem
+            voices.append({
+                "name": voice_name,
+                "file": str(file_path),
+                "type": "wav"
+            })
+        
+        return {
+            "success": True,
+            "message": f"音频文件上传成功: {safe_filename}",
+            "uploaded_file": safe_filename,
+            "voices": voices,
+            "count": len(voices)
+        }
+        
+    except Exception as e:
+        logger.error(f"音频文件上传失败: {e}")
+        raise HTTPException(status_code=500, detail=f"音频文件上传失败: {str(e)}")
+
+
+@app.post("/upload-scene")
+async def upload_scene_file(scene_file: UploadFile = File(...)):
+    """上传场景文本文件到场景文件夹"""
+    try:
+        # 检查文件类型
+        if not scene_file.filename.lower().endswith('.txt'):
+            raise HTTPException(status_code=400, detail="只支持文本文件格式: txt")
+        
+        # 确保目标目录存在
+        scene_dir = Path(config.scene_prompts_dir)
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 生成安全的文件名
+        filename = scene_file.filename
+        # 移除扩展名
+        name_without_ext = Path(filename).stem
+        # 添加.txt扩展名
+        safe_filename = f"{name_without_ext}.txt"
+        file_path = scene_dir / safe_filename
+        
+        # 如果文件已存在，添加数字后缀
+        counter = 1
+        original_path = file_path
+        while file_path.exists():
+            safe_filename = f"{name_without_ext}_{counter}.txt"
+            file_path = scene_dir / safe_filename
+            counter += 1
+        
+        # 保存文件
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(scene_file.file, buffer)
+        
+        # 读取文件内容
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+        except UnicodeDecodeError:
+            # 如果UTF-8失败，尝试其他编码
+            with open(file_path, 'r', encoding='gbk') as f:
+                content = f.read().strip()
+        
+        # 获取更新后的场景列表
+        scenes = []
+        for file_path in scene_dir.glob("*.txt"):
+            scene_name = file_path.stem
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    scene_content = f.read().strip()
+                scenes.append({
+                    "name": scene_name,
+                    "content": scene_content,
+                    "file": str(file_path)
+                })
+            except Exception as e:
+                logger.warning(f"读取场景文件失败 {file_path}: {e}")
+        
+        return {
+            "success": True,
+            "message": f"场景文件上传成功: {safe_filename}",
+            "uploaded_file": safe_filename,
+            "content": content,
+            "scenes": scenes,
+            "count": len(scenes)
+        }
+        
+    except Exception as e:
+        logger.error(f"场景文件上传失败: {e}")
+        raise HTTPException(status_code=500, detail=f"场景文件上传失败: {str(e)}")
 
 
 if __name__ == "__main__":
