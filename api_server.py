@@ -584,7 +584,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="HiggsAudio API服务器")
     parser.add_argument("--host", default="0.0.0.0", help="服务器主机地址")
-    parser.add_argument("--port", type=int, default=8000, help="服务器端口")
+    parser.add_argument("--port", type=int, default=8101, help="服务器端口")
     parser.add_argument("--model-path", default=config.model_path, help="模型路径")
     parser.add_argument("--audio-tokenizer-path", default=config.audio_tokenizer_path, help="音频tokenizer路径")
     parser.add_argument("--device", default=config.device, help="设备类型")
