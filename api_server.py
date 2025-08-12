@@ -9,7 +9,8 @@ import io
 import tempfile
 import asyncio
 import shutil
-from typing import List, Optional, Union
+import yaml
+from typing import List, Optional, Union, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -78,6 +79,35 @@ class ModelInfoResponse(BaseModel):
     supported_features: List[str]
 
 
+class ProfileInfo(BaseModel):
+    """Profile信息模型"""
+    name: str = Field(..., description="Profile名称")
+    description: str = Field(..., description="Profile描述")
+    characteristics: Dict[str, Any] = Field(default_factory=dict, description="语音特征")
+
+
+class ProfileCreateRequest(BaseModel):
+    """创建Profile请求"""
+    name: str = Field(..., description="Profile名称")
+    description: str = Field(..., description="Profile描述")
+    characteristics: Dict[str, Any] = Field(default_factory=dict, description="语音特征")
+
+
+class ProfileUpdateRequest(BaseModel):
+    """更新Profile请求"""
+    description: Optional[str] = Field(None, description="Profile描述")
+    characteristics: Optional[Dict[str, Any]] = Field(None, description="语音特征")
+
+
+class ProfileResponse(BaseModel):
+    """Profile响应"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="响应消息")
+    profile: Optional[ProfileInfo] = Field(None, description="Profile信息")
+    profiles: Optional[List[ProfileInfo]] = Field(None, description="Profile列表")
+    count: Optional[int] = Field(None, description="Profile数量")
+
+
 @dataclass
 class ServerConfig:
     """服务器配置"""
@@ -87,6 +117,7 @@ class ServerConfig:
     max_new_tokens: int = 2048
     voice_prompts_dir: str = "examples/voice_prompts"
     scene_prompts_dir: str = "examples/scene_prompts"
+    profile_file: str = "examples/voice_prompts/profile.yaml"
 
 
 # 服务器配置
@@ -129,6 +160,38 @@ def load_model():
         raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
 
 
+def load_profiles() -> Dict[str, str]:
+    """加载Profile配置"""
+    try:
+        profile_path = Path(config.profile_file)
+        if not profile_path.exists():
+            logger.warning(f"Profile文件不存在: {profile_path}")
+            return {}
+        
+        with open(profile_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+            return data.get('profiles', {})
+    except Exception as e:
+        logger.error(f"加载Profile失败: {e}")
+        return {}
+
+
+def save_profiles(profiles: Dict[str, str]) -> bool:
+    """保存Profile配置"""
+    try:
+        profile_path = Path(config.profile_file)
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        data = {'profiles': profiles}
+        with open(profile_path, 'w', encoding='utf-8') as f:
+            yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        
+        return True
+    except Exception as e:
+        logger.error(f"保存Profile失败: {e}")
+        return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """应用启动时加载模型"""
@@ -152,6 +215,7 @@ async def root():
             "/generate-stream",
             "/voices",
             "/scenes",
+            "/profiles",
             "/upload-audio",
             "/upload-scene"
         ]
@@ -231,6 +295,178 @@ async def get_available_scenes():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/profiles")
+async def get_profiles():
+    """获取所有Profile"""
+    try:
+        profiles = load_profiles()
+        profile_list = []
+        
+        for name, description in profiles.items():
+            profile_list.append(ProfileInfo(
+                name=name,
+                description=description,
+                characteristics={}  # 可以扩展为更详细的特征描述
+            ))
+        
+        return ProfileResponse(
+            success=True,
+            message="获取Profile列表成功",
+            profiles=profile_list,
+            count=len(profile_list)
+        )
+    except Exception as e:
+        logger.error(f"获取Profile列表失败: {e}")
+        return ProfileResponse(
+            success=False,
+            message=f"获取Profile列表失败: {str(e)}"
+        )
+
+
+@app.get("/profiles/{profile_name}")
+async def get_profile(profile_name: str):
+    """获取指定Profile"""
+    try:
+        profiles = load_profiles()
+        
+        if profile_name not in profiles:
+            raise HTTPException(status_code=404, detail=f"Profile '{profile_name}' 不存在")
+        
+        profile = ProfileInfo(
+            name=profile_name,
+            description=profiles[profile_name],
+            characteristics={}
+        )
+        
+        return ProfileResponse(
+            success=True,
+            message="获取Profile成功",
+            profile=profile
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取Profile失败: {e}")
+        return ProfileResponse(
+            success=False,
+            message=f"获取Profile失败: {str(e)}"
+        )
+
+
+@app.post("/profiles", response_model=ProfileResponse)
+async def create_profile(request: ProfileCreateRequest):
+    """创建新Profile"""
+    try:
+        profiles = load_profiles()
+        
+        if request.name in profiles:
+            return ProfileResponse(
+                success=False,
+                message=f"Profile '{request.name}' 已存在"
+            )
+        
+        # 添加新Profile
+        profiles[request.name] = request.description
+        
+        if save_profiles(profiles):
+            new_profile = ProfileInfo(
+                name=request.name,
+                description=request.description,
+                characteristics=request.characteristics
+            )
+            
+            return ProfileResponse(
+                success=True,
+                message=f"Profile '{request.name}' 创建成功",
+                profile=new_profile
+            )
+        else:
+            return ProfileResponse(
+                success=False,
+                message="保存Profile失败"
+            )
+    except Exception as e:
+        logger.error(f"创建Profile失败: {e}")
+        return ProfileResponse(
+            success=False,
+            message=f"创建Profile失败: {str(e)}"
+        )
+
+
+@app.put("/profiles/{profile_name}", response_model=ProfileResponse)
+async def update_profile(profile_name: str, request: ProfileUpdateRequest):
+    """更新Profile"""
+    try:
+        profiles = load_profiles()
+        
+        if profile_name not in profiles:
+            return ProfileResponse(
+                success=False,
+                message=f"Profile '{profile_name}' 不存在"
+            )
+        
+        # 更新Profile
+        if request.description is not None:
+            profiles[profile_name] = request.description
+        
+        if save_profiles(profiles):
+            updated_profile = ProfileInfo(
+                name=profile_name,
+                description=profiles[profile_name],
+                characteristics=request.characteristics or {}
+            )
+            
+            return ProfileResponse(
+                success=True,
+                message=f"Profile '{profile_name}' 更新成功",
+                profile=updated_profile
+            )
+        else:
+            return ProfileResponse(
+                success=False,
+                message="保存Profile失败"
+            )
+    except Exception as e:
+        logger.error(f"更新Profile失败: {e}")
+        return ProfileResponse(
+            success=False,
+            message=f"更新Profile失败: {str(e)}"
+        )
+
+
+@app.delete("/profiles/{profile_name}", response_model=ProfileResponse)
+async def delete_profile(profile_name: str):
+    """删除Profile"""
+    try:
+        profiles = load_profiles()
+        
+        if profile_name not in profiles:
+            return ProfileResponse(
+                success=False,
+                message=f"Profile '{profile_name}' 不存在"
+            )
+        
+        # 删除Profile
+        del profiles[profile_name]
+        
+        if save_profiles(profiles):
+            return ProfileResponse(
+                success=True,
+                message=f"Profile '{profile_name}' 删除成功"
+            )
+        else:
+            return ProfileResponse(
+                success=False,
+                message="保存Profile失败"
+            )
+    except Exception as e:
+        logger.error(f"删除Profile失败: {e}")
+        return ProfileResponse(
+            success=False,
+            message=f"删除Profile失败: {str(e)}"
+        )
 
 
 def prepare_messages(text: str, ref_audio: Optional[str] = None, scene_prompt: str = "quiet_indoor") -> ChatMLSample:
