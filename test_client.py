@@ -844,31 +844,31 @@ if __name__ == "__main__":
         test_upload_scene()
 
     # 单场景执行
-    if args.test == "smart-voice-en":
+    if args.test == "smart-voice-en" or args.test == "all":
         test_smart_voice_single_speaker("en", args.output_dir)
-    if args.test == "smart-voice-zh":
+    if args.test == "smart-voice-zh" or args.test == "all":
         test_smart_voice_single_speaker("zh", args.output_dir)
-    if args.test == "profile-voices":
+    if args.test == "profile-voices" or args.test == "all":
         test_voice_profile_british(args.output_dir)
-    if args.test == "cross-lingual":
+    if args.test == "cross-lingual" or args.test == "all":
         test_cross_lingual_voice_clone(args.output_dir)
-    if args.test == "humming":
+    if args.test == "humming" or args.test == "all":
         test_humming_with_cloned_voice(args.output_dir)
-    if args.test == "bgm":
+    if args.test == "bgm" or args.test == "all":
         test_bgm_reading(args.output_dir)
-    if args.test == "multi-speaker-zero-shot":
+    if args.test == "multi-speaker-zero-shot" or args.test == "all":
         test_multi_speaker_zero_shot(args.output_dir)
-    if args.test == "multi-voice-clone":
+    if args.test == "multi-voice-clone" or args.test == "all":
         test_multi_voice_clone_argument(args.output_dir)
-    if args.test == "multi-voice-clone-higgs":
+    if args.test == "multi-voice-clone-higgs" or args.test == "all":
         test_multi_voice_clone_higgs_dialog(args.output_dir)
-    if args.test == "emotions":
+    if args.test == "emotions" or args.test == "all":
         test_emotion_styles(args.output_dir)
-    if args.test == "long-form-blog":
+    if args.test == "long-form-blog" or args.test == "all":
         test_long_form_blog_reading(args.output_dir)
-    if args.test == "profile-management":
+    if args.test == "profile-management" or args.test == "all":
         test_profile_management()
-    if args.test == "profile-with-audio-generation":
+    if args.test == "profile-with-audio-generation" or args.test == "all":
         test_profile_with_audio_generation()
 
     # 运行所有扩展示例
