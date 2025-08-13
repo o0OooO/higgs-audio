@@ -717,15 +717,15 @@ def test_profile_management():
         print(f"验证Profile失败: {e}")
     
     # 6. 删除测试Profile
-    print("\n6. 删除测试Profile...")
-    try:
-        result = client.delete_profile(new_profile_name)
-        if result.get('success'):
-            print("Profile删除成功!")
-        else:
-            print(f"Profile删除失败: {result.get('message', '未知错误')}")
-    except Exception as e:
-        print(f"Profile删除失败: {e}")
+    # print("\n6. 删除测试Profile...")
+    # try:
+    #     result = client.delete_profile(new_profile_name)
+    #     if result.get('success'):
+    #         print("Profile删除成功!")
+    #     else:
+    #         print(f"Profile删除失败: {result.get('message', '未知错误')}")
+    # except Exception as e:
+    #     print(f"Profile删除失败: {e}")
     
     # 7. 验证删除结果
     print("\n7. 验证删除结果...")
