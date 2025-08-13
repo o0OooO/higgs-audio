@@ -357,6 +357,26 @@ def test_multi_speaker_zero_shot(output_dir: str = "outputs"):
     )
 
 
+# def test_multi_voice_clone_argument(output_dir: str = "outputs"):
+#     """测试多人语音克隆（Belinda vs Broom Salesman 争论）"""
+#     print("\n=== 测试多人语音克隆：Belinda 与 Broom Salesman ===")
+#     client = HiggsAudioClient()
+#     base = Path(__file__).parent
+#     transcript_path = base / "examples/transcript/multi_speaker/en_argument.txt"
+#     text = _read_text_file(transcript_path)
+#     _ensure_output_dir(output_dir)
+#     print(f"使用文稿: {transcript_path}")
+#     _run_case_and_save(
+#         client,
+#         text=text,
+#         output_path=Path(output_dir) / "multi_clone_belinda_broomsalesman.wav",
+#         ref_audio="belinda,broom_salesman",
+#         seed=12345,
+#         max_new_tokens=2048,
+#         chunk_method="speaker",
+#     )
+
+
 def test_multi_voice_clone_argument(output_dir: str = "outputs"):
     """测试多人语音克隆（Belinda vs Broom Salesman 争论）"""
     print("\n=== 测试多人语音克隆：Belinda 与 Broom Salesman ===")
@@ -370,11 +390,12 @@ def test_multi_voice_clone_argument(output_dir: str = "outputs"):
         client,
         text=text,
         output_path=Path(output_dir) / "multi_clone_belinda_broomsalesman.wav",
-        ref_audio="belinda,broom_salesman",
+        ref_audio="profile:male_en,female_en_story",
         seed=12345,
         max_new_tokens=2048,
         chunk_method="speaker",
     )
+
 
 
 def test_multi_voice_clone_higgs_dialog(output_dir: str = "outputs"):
