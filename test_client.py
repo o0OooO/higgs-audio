@@ -390,7 +390,7 @@ def test_multi_voice_clone_argument(output_dir: str = "outputs"):
         client,
         text=text,
         output_path=Path(output_dir) / "multi_clone_belinda_broomsalesman.wav",
-        ref_audio="profile:male_en,female_en_story",
+        ref_audio="profile:male_en,profile:female_en_story",
         seed=12345,
         max_new_tokens=2048,
         chunk_method="speaker",

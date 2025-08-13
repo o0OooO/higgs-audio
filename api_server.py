@@ -533,10 +533,12 @@ async def generate_audio(request: AudioGenerationRequest):
         # 设置安全默认的分块缓冲区，避免长文本导致显存/内存爆炸
         safe_chunk_buffer = request.generation_chunk_buffer_size if request.generation_chunk_buffer_size is not None else 2
 
+        safe_max_new_tokens = min(max(1, request.max_new_tokens), config.max_new_tokens)
+
         audio_wav, sr, gen_text = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
-            max_new_tokens=request.max_new_tokens,
+            max_new_tokens=safe_max_new_tokens,
             transcript=request.text,
             scene_prompt=scene_prompt_arg,
             temperature=request.temperature,
@@ -675,10 +677,11 @@ async def generate_audio_with_upload(
         # 使用 generation 生成
         scene_prompt_arg = None
         safe_chunk_buffer = 2
+        safe_max_new_tokens = min(max(1, max_new_tokens), config.max_new_tokens)
         audio_wav, sr, _ = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
-            max_new_tokens=max_new_tokens,
+            max_new_tokens=safe_max_new_tokens,
             transcript=text,
             scene_prompt=scene_prompt_arg,
             temperature=temperature,
