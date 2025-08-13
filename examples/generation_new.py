@@ -210,10 +210,15 @@ class HiggsAudioModelClient:
         else:
             self._audio_tokenizer = audio_tokenizer
 
+        # 使用更省显存的精度：CUDA/MPS 使用 float16，其它使用 bfloat16
+        if isinstance(self._device, str) and (self._device.startswith("cuda") or self._device == "mps"):
+            load_dtype = torch.float16
+        else:
+            load_dtype = torch.bfloat16
         self._model = HiggsAudioModel.from_pretrained(
             model_path,
             device_map=self._device,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=load_dtype,
         )
         self._model.eval()
         self._kv_cache_lengths = kv_cache_lengths
@@ -354,10 +359,22 @@ class HiggsAudioModelClient:
                 audio_out_ids = ele
                 if self._config.use_delay_pattern:
                     audio_out_ids = revert_delay_pattern(audio_out_ids)
-                step_audio_out_ids_l.append(audio_out_ids.clip(0, self._audio_tokenizer.codebook_size - 1)[:, 1:-1])
+                step = audio_out_ids.clip(0, self._audio_tokenizer.codebook_size - 1)[:, 1:-1]
+                # 立即转为 CPU，避免长序列在 GPU 堆积
+                step_cpu = step.detach().cpu()
+                step_audio_out_ids_l.append(step_cpu)
             audio_out_ids = torch.concat(step_audio_out_ids_l, dim=1)
             audio_out_ids_l.append(audio_out_ids)
             generated_audio_ids.append(audio_out_ids)
+
+            # 尽快释放 GPU 缓存
+            try:
+                if isinstance(self._device, str) and self._device.startswith("cuda"):
+                    torch.cuda.empty_cache()
+                elif hasattr(torch, "mps") and self._device == "mps":
+                    torch.mps.empty_cache()  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
             generation_messages.append(
                 Message(
@@ -373,11 +390,8 @@ class HiggsAudioModelClient:
         logger.info(self._tokenizer.decode(outputs[0][0]))
         concat_audio_out_ids = torch.concat(audio_out_ids_l, dim=1)
 
-        # Fix MPS compatibility: detach and move to CPU before decoding
-        if concat_audio_out_ids.device.type == "mps":
-            concat_audio_out_ids_cpu = concat_audio_out_ids.detach().cpu()
-        else:
-            concat_audio_out_ids_cpu = concat_audio_out_ids
+        # 为稳定释放显存，统一在 CPU 上解码
+        concat_audio_out_ids_cpu = concat_audio_out_ids.detach().cpu()
 
         concat_wv = self._audio_tokenizer.decode(concat_audio_out_ids_cpu.unsqueeze(0))[0, 0]
         text_result = self._tokenizer.decode(outputs[0][0])
@@ -385,6 +399,13 @@ class HiggsAudioModelClient:
 
 
 _CLIENT_CACHE = {}
+_GEN_LOCK = None
+try:
+    import threading
+
+    _GEN_LOCK = threading.Lock()
+except Exception:
+    pass
 
 def _resolve_device(device: str, device_id: Optional[int]):
     if device_id is None:
@@ -414,14 +435,14 @@ def _get_or_create_client(
     max_new_tokens: int,
 ):
     resolved_device, resolved_device_id = _resolve_device(device, device_id)
-    # Disable static KV cache on MPS since it relies on CUDA graphs
-    effective_use_static_kv_cache = 0 if resolved_device == "mps" and use_static_kv_cache else use_static_kv_cache
+    # MPS/CUDA 关闭静态 KV cache 可有效降显存
+    effective_use_static_kv_cache = 0
 
     cache_key = (model_path, audio_tokenizer_path, resolved_device, resolved_device_id, bool(effective_use_static_kv_cache))
     client = _CLIENT_CACHE.get(cache_key)
     if client is None:
-        audio_tokenizer_device = "cpu" if resolved_device == "mps" else resolved_device
-        audio_tokenizer = load_higgs_audio_tokenizer(audio_tokenizer_path, device=audio_tokenizer_device)
+        # 始终在 CPU 上放置音频 tokenizer，避免占用显存
+        audio_tokenizer = load_higgs_audio_tokenizer(audio_tokenizer_path, device="cpu")
         client = HiggsAudioModelClient(
             model_path=model_path,
             audio_tokenizer=audio_tokenizer,
@@ -532,18 +553,33 @@ def run_generation(
         logger.info(chunk_text)
         logger.info("-----")
 
-    concat_wv, sr, text_output = model_client.generate(
-        messages=messages,
-        audio_ids=audio_ids,
-        chunked_text=chunked_text,
-        generation_chunk_buffer_size=generation_chunk_buffer_size,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        ras_win_len=ras_win_len,
-        ras_win_max_num_repeat=ras_win_max_num_repeat,
-        seed=seed,
-    )
+    if _GEN_LOCK is not None:
+        with _GEN_LOCK:
+            concat_wv, sr, text_output = model_client.generate(
+                messages=messages,
+                audio_ids=audio_ids,
+                chunked_text=chunked_text,
+                generation_chunk_buffer_size=generation_chunk_buffer_size,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                ras_win_len=ras_win_len,
+                ras_win_max_num_repeat=ras_win_max_num_repeat,
+                seed=seed,
+            )
+    else:
+        concat_wv, sr, text_output = model_client.generate(
+            messages=messages,
+            audio_ids=audio_ids,
+            chunked_text=chunked_text,
+            generation_chunk_buffer_size=generation_chunk_buffer_size,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            ras_win_len=ras_win_len,
+            ras_win_max_num_repeat=ras_win_max_num_repeat,
+            seed=seed,
+        )
 
     return concat_wv, sr, text_output
 

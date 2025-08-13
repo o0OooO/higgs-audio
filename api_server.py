@@ -552,7 +552,7 @@ async def generate_audio(request: AudioGenerationRequest):
             generation_chunk_buffer_size=safe_chunk_buffer,
             seed=request.seed,
             device_id=None,
-            use_static_kv_cache=1,
+            use_static_kv_cache=0,
             device=get_device(),
         )
 
@@ -694,7 +694,7 @@ async def generate_audio_with_upload(
             generation_chunk_buffer_size=safe_chunk_buffer,
             seed=seed,
             device_id=None,
-            use_static_kv_cache=1,
+            use_static_kv_cache=0,
             device=get_device(),
         )
 
