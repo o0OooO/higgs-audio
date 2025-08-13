@@ -202,6 +202,53 @@ async def startup_event():
         logger.error(f"启动失败: {e}")
 
 
+def resolve_ref_audio_path(ref_audio: Optional[str]) -> Optional[Path]:
+    """解析参考音频在文件系统中的实际路径。
+
+    支持以下输入：
+    - 绝对/相对路径（若文件存在则直接使用）
+    - 仅名称（不带扩展名），将在 `config.voice_prompts_dir` 下按常见音频扩展名查找
+    - 带扩展名的文件名，将在 `config.voice_prompts_dir` 下查找
+    """
+    try:
+        if not ref_audio:
+            return None
+
+        candidate = Path(ref_audio)
+        # 直接传入可访问的路径
+        if candidate.is_file():
+            return candidate
+
+        voice_dir = Path(config.voice_prompts_dir)
+
+        # 传入带扩展名的文件名
+        if candidate.suffix:
+            fp = voice_dir / candidate.name
+            if fp.is_file():
+                return fp
+        else:
+            # 仅名称，尝试常见扩展名（优先.wav）
+            for ext in (".wav", ".mp3", ".flac", ".m4a"):
+                fp = voice_dir / f"{ref_audio}{ext}"
+                if fp.is_file():
+                    return fp
+
+        return None
+    except Exception as e:
+        logger.warning(f"解析参考音频路径失败: {e}")
+        return None
+
+
+def validate_ref_audio_exists(ref_audio: Optional[str]) -> Dict[str, Any]:
+    """验证是否存在参考克隆音频，返回存在性与解析出的文件路径。"""
+    resolved = resolve_ref_audio_path(ref_audio)
+    return {
+        "exists": resolved is not None,
+        "resolved_file": str(resolved) if resolved else None,
+        "search_dir": str(Path(config.voice_prompts_dir).resolve()),
+    }
+
+
 @app.get("/", response_model=dict)
 async def root():
     """根路径"""
@@ -217,7 +264,8 @@ async def root():
             "/scenes",
             "/profiles",
             "/upload-audio",
-            "/upload-scene"
+            "/upload-scene",
+            "/validate-ref-audio"
         ]
     }
 
@@ -295,6 +343,34 @@ async def get_available_scenes():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/validate-ref-audio")
+async def api_validate_ref_audio(ref_audio: Optional[str] = None):
+    """验证是否存在参考克隆音频。
+
+    查询参数：
+    - ref_audio: 可以是绝对/相对路径、带扩展名文件名，或仅名称（不带扩展名）。
+    """
+    try:
+        if not ref_audio:
+            return {
+                "success": False,
+                "message": "参数 ref_audio 不能为空",
+                "exists": False,
+                "resolved_file": None,
+                "search_dir": str(Path(config.voice_prompts_dir).resolve()),
+            }
+
+        result = validate_ref_audio_exists(ref_audio)
+        return {
+            "success": True,
+            "message": "校验完成",
+            **result,
+        }
+    except Exception as e:
+        logger.error(f"参考音频校验失败: {e}")
+        raise HTTPException(status_code=500, detail=f"参考音频校验失败: {str(e)}")
 
 
 @app.get("/profiles")

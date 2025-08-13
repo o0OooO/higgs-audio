@@ -32,6 +32,12 @@ class HiggsAudioClient:
         response = self.session.get(f"{self.base_url}/scenes")
         return response.json()
     
+    def validate_ref_audio(self, ref_audio: str):
+        """校验参考音频是否存在"""
+        params = {"ref_audio": ref_audio}
+        response = self.session.get(f"{self.base_url}/validate-ref-audio", params=params)
+        return response.json()
+    
     def generate_audio(self, text: str, **kwargs):
         """生成音频"""
         data = {
@@ -224,6 +230,38 @@ def test_basic_functionality():
                 
         except Exception as e:
             print(f"  生成失败: {e}")
+
+
+def test_validate_ref_audio():
+    """测试参考克隆音频校验接口"""
+    print("\n=== 测试参考音频校验 ===")
+    client = HiggsAudioClient()
+    
+    # 先测试不存在的情况
+    non_exist = "voice_not_exists_abcdef123"
+    try:
+        result = client.validate_ref_audio(non_exist)
+        print(f"不存在用例 -> exists: {result.get('exists')} | message: {result.get('message', '')}")
+    except Exception as e:
+        print(f"校验不存在用例失败: {e}")
+    
+    # 再尝试从服务器可用语音中挑选一个存在的名称进行测试
+    try:
+        voices = client.get_voices()
+        names = [v['name'] for v in voices.get('voices', [])]
+        if names:
+            exist_name = names[0]
+            # 仅名称（不带扩展名）
+            r1 = client.validate_ref_audio(exist_name)
+            print(f"存在(名称) -> exists: {r1.get('exists')} | resolved: {r1.get('resolved_file')}")
+            
+            # 带扩展名
+            r2 = client.validate_ref_audio(f"{exist_name}.wav")
+            print(f"存在(文件名) -> exists: {r2.get('exists')} | resolved: {r2.get('resolved_file')}")
+        else:
+            print("无可用语音样本，跳过存在用例测试。")
+    except Exception as e:
+        print(f"校验存在用例失败: {e}")
 
 
 def test_smart_voice_single_speaker(language: str = "en", output_dir: str = "outputs"):
@@ -817,6 +855,7 @@ if __name__ == "__main__":
         "--test",
         choices=[
             "basic",
+            "validate-ref-audio",
             "voice-clone",
             "streaming",
             "upload-audio",
@@ -851,6 +890,9 @@ if __name__ == "__main__":
     
     if args.test == "basic" or args.test == "all":
         test_basic_functionality()
+    
+    if args.test == "validate-ref-audio" or args.test == "all":
+        test_validate_ref_audio()
     
     if args.test == "voice-clone" or args.test == "all":
         test_voice_cloning()
