@@ -287,15 +287,10 @@ class HiggsAudioModelClient:
     ):
         if ras_win_len is not None and ras_win_len <= 0:
             ras_win_len = None
-        # 使用 tokenizer 的采样率，避免与实际解码不一致
-        sr = int(self._audio_tokenizer.sampling_rate)
+        sr = 24000
         audio_out_ids_l = []
         generated_audio_ids = []
         generation_messages = []
-        # 安全时长上限（秒），避免异常超长音频。可按需调整。
-        MAX_SECONDS = 30
-        max_steps = int(MAX_SECONDS * getattr(self._audio_tokenizer, "tps", 50))
-        reached_time_limit = False
         for idx, chunk_text in tqdm.tqdm(
             enumerate(chunked_text), desc="Generating audio chunks", total=len(chunked_text)
         ):
@@ -387,28 +382,13 @@ class HiggsAudioModelClient:
                     content=AudioContent(audio_url=""),
                 )
             )
-            # 限制用于上下文回看的缓冲
             if generation_chunk_buffer_size is not None and len(generated_audio_ids) > generation_chunk_buffer_size:
                 generated_audio_ids = generated_audio_ids[-generation_chunk_buffer_size:]
                 generation_messages = generation_messages[(-2 * generation_chunk_buffer_size) :]
 
-            # 安全：总步数超过阈值则截断并停止继续生成
-            total_steps = 0
-            for seg in audio_out_ids_l:
-                total_steps += seg.shape[1]
-            if total_steps > max_steps:
-                # 截断最后一段到上限
-                overflow = total_steps - max_steps
-                if overflow > 0 and audio_out_ids_l:
-                    last = audio_out_ids_l[-1]
-                    keep_len = max(0, last.shape[1] - overflow)
-                    audio_out_ids_l[-1] = last[:, :keep_len]
-                reached_time_limit = True
-                break
-
         logger.info(f"========= Final Text output =========")
         logger.info(self._tokenizer.decode(outputs[0][0]))
-        concat_audio_out_ids = torch.concat(audio_out_ids_l, dim=1) if len(audio_out_ids_l) > 0 else torch.empty((getattr(self._audio_tokenizer, "audio_num_codebooks", 1), 0), dtype=torch.long)
+        concat_audio_out_ids = torch.concat(audio_out_ids_l, dim=1)
 
         # 为稳定释放显存，统一在 CPU 上解码
         concat_audio_out_ids_cpu = concat_audio_out_ids.detach().cpu()

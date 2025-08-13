@@ -168,7 +168,7 @@ def load_profiles() -> Dict[str, str]:
         if not profile_path.exists():
             logger.warning(f"Profile文件不存在: {profile_path}")
             return {}
-        
+
         with open(profile_path, 'r', encoding='utf-8') as f:
             data = yaml.safe_load(f)
             return data.get('profiles', {})
@@ -182,11 +182,11 @@ def save_profiles(profiles: Dict[str, str]) -> bool:
     try:
         profile_path = Path(config.profile_file)
         profile_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         data = {'profiles': profiles}
         with open(profile_path, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        
+
         return True
     except Exception as e:
         logger.error(f"保存Profile失败: {e}")
@@ -303,14 +303,14 @@ async def get_profiles():
     try:
         profiles = load_profiles()
         profile_list = []
-        
+
         for name, description in profiles.items():
             profile_list.append(ProfileInfo(
                 name=name,
                 description=description,
                 characteristics={}  # 可以扩展为更详细的特征描述
             ))
-        
+
         return ProfileResponse(
             success=True,
             message="获取Profile列表成功",
@@ -330,16 +330,16 @@ async def get_profile(profile_name: str):
     """获取指定Profile"""
     try:
         profiles = load_profiles()
-        
+
         if profile_name not in profiles:
             raise HTTPException(status_code=404, detail=f"Profile '{profile_name}' 不存在")
-        
+
         profile = ProfileInfo(
             name=profile_name,
             description=profiles[profile_name],
             characteristics={}
         )
-        
+
         return ProfileResponse(
             success=True,
             message="获取Profile成功",
@@ -360,23 +360,23 @@ async def create_profile(request: ProfileCreateRequest):
     """创建新Profile"""
     try:
         profiles = load_profiles()
-        
+
         if request.name in profiles:
             return ProfileResponse(
                 success=False,
                 message=f"Profile '{request.name}' 已存在"
             )
-        
+
         # 添加新Profile
         profiles[request.name] = request.description
-        
+
         if save_profiles(profiles):
             new_profile = ProfileInfo(
                 name=request.name,
                 description=request.description,
                 characteristics=request.characteristics
             )
-            
+
             return ProfileResponse(
                 success=True,
                 message=f"Profile '{request.name}' 创建成功",
@@ -400,24 +400,24 @@ async def update_profile(profile_name: str, request: ProfileUpdateRequest):
     """更新Profile"""
     try:
         profiles = load_profiles()
-        
+
         if profile_name not in profiles:
             return ProfileResponse(
                 success=False,
                 message=f"Profile '{profile_name}' 不存在"
             )
-        
+
         # 更新Profile
         if request.description is not None:
             profiles[profile_name] = request.description
-        
+
         if save_profiles(profiles):
             updated_profile = ProfileInfo(
                 name=profile_name,
                 description=profiles[profile_name],
                 characteristics=request.characteristics or {}
             )
-            
+
             return ProfileResponse(
                 success=True,
                 message=f"Profile '{profile_name}' 更新成功",
@@ -441,16 +441,16 @@ async def delete_profile(profile_name: str):
     """删除Profile"""
     try:
         profiles = load_profiles()
-        
+
         if profile_name not in profiles:
             return ProfileResponse(
                 success=False,
                 message=f"Profile '{profile_name}' 不存在"
             )
-        
+
         # 删除Profile
         del profiles[profile_name]
-        
+
         if save_profiles(profiles):
             return ProfileResponse(
                 success=True,
@@ -475,7 +475,7 @@ def prepare_messages(text: str, ref_audio: Optional[str] = None, scene_prompt: s
 
     # 构建系统消息
     system_parts = ["Generate audio following instruction."]
-    
+
     # 添加场景描述
     if scene_prompt and scene_prompt != "quiet_indoor":
         try:
@@ -486,11 +486,11 @@ def prepare_messages(text: str, ref_audio: Optional[str] = None, scene_prompt: s
                 system_parts.append(f"<|scene_desc_start|>\n{scene_content}\n<|scene_desc_end|>")
         except Exception as e:
             logger.warning(f"读取场景描述失败: {e}")
-    
+
     # 添加参考音频描述
     if ref_audio:
         system_parts.append(f"Use reference audio '{ref_audio}' for voice characteristics.")
-    
+
     system_content = "\n\n".join(system_parts)
     messages.append(Message(role="system", content=TextContent(text=system_content)))
 
@@ -533,12 +533,10 @@ async def generate_audio(request: AudioGenerationRequest):
         # 设置安全默认的分块缓冲区，避免长文本导致显存/内存爆炸
         safe_chunk_buffer = request.generation_chunk_buffer_size if request.generation_chunk_buffer_size is not None else 2
 
-        safe_max_new_tokens = min(max(1, request.max_new_tokens), config.max_new_tokens)
-
         audio_wav, sr, gen_text = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
-            max_new_tokens=safe_max_new_tokens,
+            max_new_tokens=request.max_new_tokens,
             transcript=request.text,
             scene_prompt=scene_prompt_arg,
             temperature=request.temperature,
@@ -677,11 +675,10 @@ async def generate_audio_with_upload(
         # 使用 generation 生成
         scene_prompt_arg = None
         safe_chunk_buffer = 2
-        safe_max_new_tokens = min(max(1, max_new_tokens), config.max_new_tokens)
         audio_wav, sr, _ = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
-            max_new_tokens=safe_max_new_tokens,
+            max_new_tokens=max_new_tokens,
             transcript=text,
             scene_prompt=scene_prompt_arg,
             temperature=temperature,
@@ -732,11 +729,11 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
         # 检查文件类型
         if not audio_file.filename.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
             raise HTTPException(status_code=400, detail="只支持音频文件格式: wav, mp3, flac, m4a")
-        
+
         # 确保目标目录存在
         voice_dir = Path(config.voice_prompts_dir)
         voice_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 生成安全的文件名
         filename = audio_file.filename
         # 移除扩展名
@@ -744,7 +741,7 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
         # 添加.wav扩展名（统一格式）
         safe_filename = f"{name_without_ext}.wav"
         file_path = voice_dir / safe_filename
-        
+
         # 如果文件已存在，添加数字后缀
         counter = 1
         original_path = file_path
@@ -752,11 +749,11 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
             safe_filename = f"{name_without_ext}_{counter}.wav"
             file_path = voice_dir / safe_filename
             counter += 1
-        
+
         # 保存文件
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(audio_file.file, buffer)
-        
+
         # 获取更新后的音频列表
         voices = []
         for file_path in voice_dir.glob("*.wav"):
@@ -766,7 +763,7 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
                 "file": str(file_path),
                 "type": "wav"
             })
-        
+
         return {
             "success": True,
             "message": f"音频文件上传成功: {safe_filename}",
@@ -774,7 +771,7 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
             "voices": voices,
             "count": len(voices)
         }
-        
+
     except Exception as e:
         logger.error(f"音频文件上传失败: {e}")
         raise HTTPException(status_code=500, detail=f"音频文件上传失败: {str(e)}")
@@ -787,11 +784,11 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
         # 检查文件类型
         if not scene_file.filename.lower().endswith('.txt'):
             raise HTTPException(status_code=400, detail="只支持文本文件格式: txt")
-        
+
         # 确保目标目录存在
         scene_dir = Path(config.scene_prompts_dir)
         scene_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 生成安全的文件名
         filename = scene_file.filename
         # 移除扩展名
@@ -799,7 +796,7 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
         # 添加.txt扩展名
         safe_filename = f"{name_without_ext}.txt"
         file_path = scene_dir / safe_filename
-        
+
         # 如果文件已存在，添加数字后缀
         counter = 1
         original_path = file_path
@@ -807,11 +804,11 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
             safe_filename = f"{name_without_ext}_{counter}.txt"
             file_path = scene_dir / safe_filename
             counter += 1
-        
+
         # 保存文件
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(scene_file.file, buffer)
-        
+
         # 读取文件内容
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -820,7 +817,7 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
             # 如果UTF-8失败，尝试其他编码
             with open(file_path, 'r', encoding='gbk') as f:
                 content = f.read().strip()
-        
+
         # 获取更新后的场景列表
         scenes = []
         for file_path in scene_dir.glob("*.txt"):
@@ -835,7 +832,7 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
                 })
             except Exception as e:
                 logger.warning(f"读取场景文件失败 {file_path}: {e}")
-        
+
         return {
             "success": True,
             "message": f"场景文件上传成功: {safe_filename}",
@@ -844,7 +841,7 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
             "scenes": scenes,
             "count": len(scenes)
         }
-        
+
     except Exception as e:
         logger.error(f"场景文件上传失败: {e}")
         raise HTTPException(status_code=500, detail=f"场景文件上传失败: {str(e)}")
