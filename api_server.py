@@ -27,6 +27,7 @@ from loguru import logger
 from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine, HiggsAudioResponse
 from boson_multimodal.data_types import Message, ChatMLSample, AudioContent, TextContent
 from boson_multimodal.dataset.chatml_dataset import prepare_chatml_sample
+from examples.generation_new import run_generation
 
 # 配置日志
 logger.add("api_server.log", rotation="10 MB", level="INFO")
@@ -525,43 +526,56 @@ def audio_to_base64(audio_data: np.ndarray, sampling_rate: int) -> str:
 async def generate_audio(request: AudioGenerationRequest):
     """生成音频"""
     try:
-        engine = load_model()
+        # 使用 examples/generation.py 的主流程生成
+        # 将 scene_prompt 名称转换为文件路径（若存在）
+        scene_path = Path(config.scene_prompts_dir) / f"{request.scene_prompt}.txt" if request.scene_prompt else None
+        scene_prompt_arg = str(scene_path) if scene_path and scene_path.exists() else None
 
-        # 准备ChatML样本
-        chat_ml_sample = prepare_messages(
-            text=request.text,
-            ref_audio=request.ref_audio,
-            scene_prompt=request.scene_prompt
-        )
-
-        # 生成音频
-        response: HiggsAudioResponse = engine.generate(
-            chat_ml_sample=chat_ml_sample,
+        audio_wav, sr, gen_text = run_generation(
+            model_path=config.model_path,
+            audio_tokenizer=config.audio_tokenizer_path,
             max_new_tokens=request.max_new_tokens,
+            transcript=request.text,
+            scene_prompt=scene_prompt_arg,
             temperature=request.temperature,
-            top_k=request.top_k,
+            top_k=request.top_k if request.top_k is not None else 50,
             top_p=request.top_p,
             ras_win_len=request.ras_win_len,
             ras_win_max_num_repeat=request.ras_win_max_num_repeat,
+            ref_audio=request.ref_audio,
+            ref_audio_in_system_message=False,
+            chunk_method=request.chunk_method,
+            chunk_max_word_num=request.chunk_max_word_num,
+            chunk_max_num_turns=request.chunk_max_num_turns,
+            generation_chunk_buffer_size=request.generation_chunk_buffer_size,
             seed=request.seed,
+            device_id=None,
+            use_static_kv_cache=1,
+            device=get_device(),
         )
 
-        if response.audio is None:
+        # 转 numpy 数组
+        if isinstance(audio_wav, torch.Tensor):
+            audio_np = audio_wav.detach().cpu().numpy()
+        else:
+            audio_np = np.asarray(audio_wav)
+
+        if audio_np is None or audio_np.size == 0:
             raise HTTPException(status_code=500, detail="音频生成失败")
 
         # 转换为Base64
-        audio_base64 = audio_to_base64(response.audio, response.sampling_rate)
+        audio_base64 = audio_to_base64(audio_np, sr)
 
         # 计算时长
-        duration = len(response.audio) / response.sampling_rate
+        duration = len(audio_np) / sr
 
         return AudioGenerationResponse(
             success=True,
             message="音频生成成功",
             audio_base64=audio_base64,
-            sampling_rate=response.sampling_rate,
+            sampling_rate=sr,
             duration=duration,
-            generated_text=response.generated_text
+            generated_text=gen_text
         )
 
     except Exception as e:
@@ -642,8 +656,6 @@ async def generate_audio_with_upload(
 ):
     """通过上传参考音频文件生成音频"""
     try:
-        engine = load_model()
-
         # 处理上传的音频文件
         if ref_audio_file:
             # 读取上传的音频文件
@@ -658,25 +670,42 @@ async def generate_audio_with_upload(
             # 简化处理：暂时忽略上传的音频文件
             logger.warning("上传音频文件功能暂未完全实现")
 
-        # 准备ChatML样本
-        chat_ml_sample = prepare_messages(text=text)
-
-        # 生成音频
-        response: HiggsAudioResponse = engine.generate(
-            chat_ml_sample=chat_ml_sample,
+        # 使用 generation 生成
+        scene_prompt_arg = None
+        audio_wav, sr, _ = run_generation(
+            model_path=config.model_path,
+            audio_tokenizer=config.audio_tokenizer_path,
             max_new_tokens=max_new_tokens,
+            transcript=text,
+            scene_prompt=scene_prompt_arg,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            ras_win_len=7,
+            ras_win_max_num_repeat=2,
+            ref_audio=None,
+            ref_audio_in_system_message=False,
+            chunk_method=None,
+            chunk_max_word_num=200,
+            chunk_max_num_turns=1,
+            generation_chunk_buffer_size=None,
             seed=seed,
+            device_id=None,
+            use_static_kv_cache=1,
+            device=get_device(),
         )
 
-        if response.audio is None:
+        if isinstance(audio_wav, torch.Tensor):
+            audio_np = audio_wav.detach().cpu().numpy()
+        else:
+            audio_np = np.asarray(audio_wav)
+
+        if audio_np is None or audio_np.size == 0:
             raise HTTPException(status_code=500, detail="音频生成失败")
 
         # 返回音频文件
         audio_bytes = io.BytesIO()
-        sf.write(audio_bytes, response.audio, response.sampling_rate, format='WAV')
+        sf.write(audio_bytes, audio_np, sr, format='WAV')
         audio_bytes.seek(0)
 
         return StreamingResponse(
