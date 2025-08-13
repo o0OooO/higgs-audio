@@ -195,10 +195,9 @@ def save_profiles(profiles: Dict[str, str]) -> bool:
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时加载模型"""
+    """应用启动时初始化日志等轻量工作，避免重复加载大模型"""
     try:
-        load_model()
-        logger.info("API服务器启动成功")
+        logger.info("API服务器启动成功（延迟加载模型）")
     except Exception as e:
         logger.error(f"启动失败: {e}")
 
@@ -531,6 +530,9 @@ async def generate_audio(request: AudioGenerationRequest):
         scene_path = Path(config.scene_prompts_dir) / f"{request.scene_prompt}.txt" if request.scene_prompt else None
         scene_prompt_arg = str(scene_path) if scene_path and scene_path.exists() else None
 
+        # 设置安全默认的分块缓冲区，避免长文本导致显存/内存爆炸
+        safe_chunk_buffer = request.generation_chunk_buffer_size if request.generation_chunk_buffer_size is not None else 2
+
         audio_wav, sr, gen_text = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
@@ -547,7 +549,7 @@ async def generate_audio(request: AudioGenerationRequest):
             chunk_method=request.chunk_method,
             chunk_max_word_num=request.chunk_max_word_num,
             chunk_max_num_turns=request.chunk_max_num_turns,
-            generation_chunk_buffer_size=request.generation_chunk_buffer_size,
+            generation_chunk_buffer_size=safe_chunk_buffer,
             seed=request.seed,
             device_id=None,
             use_static_kv_cache=1,
@@ -672,6 +674,7 @@ async def generate_audio_with_upload(
 
         # 使用 generation 生成
         scene_prompt_arg = None
+        safe_chunk_buffer = 2
         audio_wav, sr, _ = run_generation(
             model_path=config.model_path,
             audio_tokenizer=config.audio_tokenizer_path,
@@ -688,7 +691,7 @@ async def generate_audio_with_upload(
             chunk_method=None,
             chunk_max_word_num=200,
             chunk_max_num_turns=1,
-            generation_chunk_buffer_size=None,
+            generation_chunk_buffer_size=safe_chunk_buffer,
             seed=seed,
             device_id=None,
             use_static_kv_cache=1,

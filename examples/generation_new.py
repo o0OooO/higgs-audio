@@ -384,6 +384,58 @@ class HiggsAudioModelClient:
         return concat_wv, sr, text_result
 
 
+_CLIENT_CACHE = {}
+
+def _resolve_device(device: str, device_id: Optional[int]):
+    if device_id is None:
+        if device == "auto":
+            if torch.cuda.is_available():
+                return "cuda:0", 0
+            elif torch.backends.mps.is_available():
+                return "mps", None
+            else:
+                return "cpu", None
+        elif device == "cuda":
+            return "cuda:0", 0
+        elif device == "mps":
+            return "mps", None
+        else:
+            return "cpu", None
+    else:
+        return f"cuda:{device_id}", device_id
+
+
+def _get_or_create_client(
+    model_path: str,
+    audio_tokenizer_path: str,
+    device: str,
+    device_id: Optional[int],
+    use_static_kv_cache: int,
+    max_new_tokens: int,
+):
+    resolved_device, resolved_device_id = _resolve_device(device, device_id)
+    # Disable static KV cache on MPS since it relies on CUDA graphs
+    effective_use_static_kv_cache = 0 if resolved_device == "mps" and use_static_kv_cache else use_static_kv_cache
+
+    cache_key = (model_path, audio_tokenizer_path, resolved_device, resolved_device_id, bool(effective_use_static_kv_cache))
+    client = _CLIENT_CACHE.get(cache_key)
+    if client is None:
+        audio_tokenizer_device = "cpu" if resolved_device == "mps" else resolved_device
+        audio_tokenizer = load_higgs_audio_tokenizer(audio_tokenizer_path, device=audio_tokenizer_device)
+        client = HiggsAudioModelClient(
+            model_path=model_path,
+            audio_tokenizer=audio_tokenizer,
+            device=resolved_device,
+            device_id=resolved_device_id,
+            max_new_tokens=max_new_tokens,
+            use_static_kv_cache=bool(effective_use_static_kv_cache),
+        )
+        _CLIENT_CACHE[cache_key] = client
+    else:
+        # 动态更新最大生成长度
+        client._max_new_tokens = max_new_tokens
+    return client
+
 def run_generation(
     model_path,
     audio_tokenizer,
@@ -406,49 +458,15 @@ def run_generation(
     use_static_kv_cache=1,
     device="auto",
 ):
-    """Programmatic entrypoint that mirrors main() but returns (audio, sr, text).
+    """Programmatic entrypoint that mirrors main() but returns (audio, sr, text). Uses cached client."""
 
-    This avoids file I/O and click, suitable for API use.
-    """
-    # specifying a device_id implies CUDA
-    if device_id is None:
-        if device == "auto":
-            if torch.cuda.is_available():
-                device_id = 0
-                device = "cuda:0"
-            elif torch.backends.mps.is_available():
-                device_id = None  # MPS doesn't use device IDs like CUDA
-                device = "mps"
-            else:
-                device_id = None
-                device = "cpu"
-        elif device == "cuda":
-            device_id = 0
-            device = "cuda:0"
-        elif device == "mps":
-            device_id = None
-            device = "mps"
-        else:
-            device_id = None
-            device = "cpu"
-    else:
-        device = f"cuda:{device_id}"
-
-    # For MPS, use CPU for audio tokenizer due to embedding operation limitations
-    audio_tokenizer_device = "cpu" if device == "mps" else device
-    audio_tokenizer = load_higgs_audio_tokenizer(audio_tokenizer, device=audio_tokenizer_device)
-
-    # Disable static KV cache on MPS since it relies on CUDA graphs
-    if device == "mps" and use_static_kv_cache:
-        use_static_kv_cache = False
-
-    model_client = HiggsAudioModelClient(
+    model_client = _get_or_create_client(
         model_path=model_path,
-        audio_tokenizer=audio_tokenizer,
+        audio_tokenizer_path=audio_tokenizer,
         device=device,
         device_id=device_id,
-        max_new_tokens=max_new_tokens,
         use_static_kv_cache=use_static_kv_cache,
+        max_new_tokens=max_new_tokens,
     )
 
     pattern = re.compile(r"\[(SPEAKER\d+)\]")
@@ -498,7 +516,7 @@ def run_generation(
         scene_prompt=scene_prompt,
         ref_audio=ref_audio,
         ref_audio_in_system_message=ref_audio_in_system_message,
-        audio_tokenizer=audio_tokenizer,
+        audio_tokenizer=model_client._audio_tokenizer,
         speaker_tags=speaker_tags,
     )
     chunked_text = prepare_chunk_text(
