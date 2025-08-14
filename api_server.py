@@ -726,23 +726,35 @@ async def generate_audio_stream(request: AudioGenerationRequest):
 async def generate_audio_with_upload(
         text: str = Form(...),
         ref_audio_file: Optional[UploadFile] = File(None),
+        ref_text_file: Optional[UploadFile] = File(None),
         temperature: float = Form(0.7),
         top_k: int = Form(50),
         top_p: float = Form(0.95),
         max_new_tokens: int = Form(2048),
         seed: Optional[int] = Form(None)
 ):
-    """通过上传参考音频文件生成音频"""
+    """通过上传参考音频文件生成音频 ref_audio_file必须与ref_text_file同名 且一个为音频一个为对应音频脚本"""
     try:
         # 处理上传的音频文件
-        if ref_audio_file:
+        if ref_audio_file and ref_text_file:
             # 读取上传的音频文件
             audio_content = await ref_audio_file.read()
 
             # 保存到临时文件
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
                 temp_file.write(audio_content)
-                temp_file_path = temp_file.name
+                temp_file_audio_path = temp_file.name
+
+            # 读取上传的音频文本文件
+            text_content = await ref_text_file.read()
+
+            # 保存到临时文件
+            with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as text_temp_file:
+                text_temp_file.write(text_content)
+                temp_file_text_path = text_temp_file.name
+
+            if temp_file_audio_path != temp_file_text_path:
+                logger.error("temp_file_audio_path != temp_file_text_path")
 
             # 这里需要将音频文件集成到消息中
             # 简化处理：暂时忽略上传的音频文件
@@ -762,7 +774,7 @@ async def generate_audio_with_upload(
             top_p=top_p,
             ras_win_len=7,
             ras_win_max_num_repeat=2,
-            ref_audio=None,
+            ref_audio=temp_file_audio_path,
             ref_audio_in_system_message=False,
             chunk_method=None,
             chunk_max_word_num=200,
@@ -799,13 +811,14 @@ async def generate_audio_with_upload(
 
 
 @app.post("/upload-audio")
-async def upload_audio_file(audio_file: UploadFile = File(...)):
+async def upload_audio_file(audio_file: UploadFile = File(...), text_file: UploadFile = File(...)):
     """上传音频文件到语音克隆文件夹"""
     try:
         # 检查文件类型
         if not audio_file.filename.lower().endswith(('.wav', '.mp3', '.flac', '.m4a')):
             raise HTTPException(status_code=400, detail="只支持音频文件格式: wav, mp3, flac, m4a")
-
+        if not text_file.filename.lower().endswith(('.txt')):
+            raise HTTPException(status_code=400, detail="只支持音频文本文件格式: txt")
         # 确保目标目录存在
         voice_dir = Path(config.voice_prompts_dir)
         voice_dir.mkdir(parents=True, exist_ok=True)
@@ -818,6 +831,9 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
         safe_filename = f"{name_without_ext}.wav"
         file_path = voice_dir / safe_filename
 
+        safe_txt_filename = f"{name_without_ext}.txt"
+        file_txt_path = voice_dir / safe_txt_filename
+
         # 如果文件已存在，添加数字后缀
         # counter = 1
         # original_path = file_path
@@ -829,6 +845,9 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
         # 保存文件
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(audio_file.file, buffer)
+        # 保存文件
+        with open(file_txt_path, "wb") as buffer:
+            shutil.copyfileobj(text_file.file, buffer)
 
         # 获取更新后的音频列表
         voices = []
@@ -842,8 +861,9 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
 
         return {
             "success": True,
-            "message": f"音频文件上传成功: {safe_filename}",
+            "message": f"音频文件上传成功: {safe_filename},{safe_txt_filename}",
             "uploaded_file": safe_filename,
+            "uploaded_txt_file":safe_txt_filename,
             "voices": voices,
             "count": len(voices)
         }

@@ -56,15 +56,18 @@ class HiggsAudioClient:
         response = self.session.post(f"{self.base_url}/generate-stream", json=data, stream=True)
         return response
     
-    def upload_audio_file(self, file_path: str):
+    def upload_audio_file(self, file_path: str, txt_file_path: str):
         """上传音频文件"""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"文件不存在: {file_path}")
+        if not os.path.exists(txt_file_path):
+            raise FileNotFoundError(f"文件不存在: {txt_file_path}")
         
         with open(file_path, 'rb') as f:
             files = {'audio_file': (os.path.basename(file_path), f, 'audio/wav')}
-            response = self.session.post(f"{self.base_url}/upload-audio", files=files)
-        
+        with open(txt_file_path, 'rb') as f:
+            files['text_file'] = (os.path.basename(txt_file_path), f, 'text/plain')
+        response = self.session.post(f"{self.base_url}/upload-audio", files=files)
         return response.json()
     
     def upload_scene_file(self, file_path: str):
