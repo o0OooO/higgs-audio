@@ -585,6 +585,23 @@ def test_streaming():
         print(f"流式生成测试失败: {e}")
 
 
+def save_string_to_txt(text, file_path):
+    # 确保文件所在目录存在
+    import os
+    directory = os.path.dirname(file_path)
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)  # 创建目录（包括多级目录）
+
+    # 写入字符串到文件
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        print(f"字符串已成功保存到: {file_path}")
+    except Exception as e:
+        print(f"保存文件失败: {e}")
+
+
+
 def test_upload_audio():
     """测试上传音频文件功能"""
     print("\n=== 测试上传音频文件功能 ===")
@@ -618,9 +635,10 @@ def test_upload_audio():
                 wav_file.writeframes(data)
     
     print(f"上传音频文件: {test_audio_path}")
-    
+    test_txt_path = "test_audio_path.txt"
+    save_string_to_txt("ceshiceshiceshi",test_txt_path)
     try:
-        result = client.upload_audio_file(test_audio_path)
+        result = client.upload_audio_file(test_audio_path,test_txt_path)
         
         if result.get('success'):
             print("音频文件上传成功!")
