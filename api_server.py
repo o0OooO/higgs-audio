@@ -819,12 +819,12 @@ async def upload_audio_file(audio_file: UploadFile = File(...)):
         file_path = voice_dir / safe_filename
 
         # 如果文件已存在，添加数字后缀
-        counter = 1
-        original_path = file_path
-        while file_path.exists():
-            safe_filename = f"{name_without_ext}_{counter}.wav"
-            file_path = voice_dir / safe_filename
-            counter += 1
+        # counter = 1
+        # original_path = file_path
+        # while file_path.exists():
+        #     safe_filename = f"{name_without_ext}_{counter}.wav"
+        #     file_path = voice_dir / safe_filename
+        #     counter += 1
 
         # 保存文件
         with open(file_path, "wb") as buffer:
@@ -874,12 +874,12 @@ async def upload_scene_file(scene_file: UploadFile = File(...)):
         file_path = scene_dir / safe_filename
 
         # 如果文件已存在，添加数字后缀
-        counter = 1
-        original_path = file_path
-        while file_path.exists():
-            safe_filename = f"{name_without_ext}_{counter}.txt"
-            file_path = scene_dir / safe_filename
-            counter += 1
+        # counter = 1
+        # original_path = file_path
+        # while file_path.exists():
+        #     safe_filename = f"{name_without_ext}_{counter}.txt"
+        #     file_path = scene_dir / safe_filename
+        #     counter += 1
 
         # 保存文件
         with open(file_path, "wb") as buffer:
